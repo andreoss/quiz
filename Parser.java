@@ -1,46 +1,76 @@
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-/**
- * This class is thread safe.
- */
-public class Parser {
-  private File file;
-  public synchronized void setFile(File f) {
-    file = f;
-  }
-  public synchronized File getFile() {
-    return file;
-  }
-  public String getContent() throws IOException {
-    FileInputStream i = new FileInputStream(file);
-    String output = "";
-    int data;
-    while ((data = i.read()) > 0) {
-      output += (char) data;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+interface Content {
+    String read() throws IOException;
+
+    void write(String content) throws IOException;
+}
+
+final class FileContent implements Content {
+    private final Path file;
+
+    public FileContent(final Path file) {
+        this.file = file;
     }
-    return output;
-  }
-  public String getContentWithoutUnicode() throws IOException {
-    FileInputStream i = new FileInputStream(file);
-    String output = "";
-    int data;
-    while ((data = i.read()) > 0) {
-      if (data < 0x80) {
-        output += (char) data;
-      }
+
+    @Override
+    public String read() throws IOException {
+        return Files.readString(this.file);
     }
-    return output;
-  }
-  public void saveContent(String content) {
-    FileOutputStream o = new FileOutputStream(file);
-    try {
-      for (int i = 0; i < content.length(); i += 1) {
-        o.write(content.charAt(i));
-      }
-    } catch (IOException e) {
-      e.printStackTrace();
+
+    @Override
+    public void write(final String content) throws IOException {
+        Files.writeString(this.file, content);
     }
-  }
+}
+
+final class AsciiOnlyContent implements Content {
+    private final Content content;
+
+    public AsciiOnlyContent(final Content content) {
+        this.content = content;
+    }
+
+    @Override
+    public String read() throws IOException {
+        return this.content.read().replaceAll("[^\\x00-\\x7F]", "");
+    }
+
+    @Override
+    public void write(final String content) throws IOException {
+        this.content.write(content.replaceAll("[^\\x00-\\x7F]", ""));
+    }
+}
+
+final class ContentTest {
+    @Test
+    void withUnicode() throws IOException {
+        final var file = Files.createTempFile("temp", ".txt");
+        final var p = new FileContent(file);
+        Files.writeString(file, "привет!!!");
+        Assertions.assertEquals(p.read(), "привет!!!");
+    }
+
+    @Test
+    void writesAndReadsContentAndIgnoresUnicode() throws IOException {
+        final var p =
+            new AsciiOnlyContent(
+                new FileContent(Files.createTempFile("temp", ".txt")
+                )
+            );
+        p.write("Привет!!!");
+        Assertions.assertEquals(p.read(), "!!!");
+    }
+
+    @Test
+    void readsContent() throws IOException {
+        final var file = Files.createTempFile("temp", ".txt");
+        final var p = new FileContent(file);
+        Files.writeString(file, "Hi there");
+        Assertions.assertEquals(p.read(), "Hi there");
+    }
 }
